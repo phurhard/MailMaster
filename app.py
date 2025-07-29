@@ -2,7 +2,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.services.gmail import init_gmail_service, search_emails, get_email_message_details
 from typing import List, Dict
-import os
 
 client_service_file = 'client_secret.json'
 

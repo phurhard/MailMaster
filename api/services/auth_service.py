@@ -1,11 +1,11 @@
 from googleapiclient.discovery import build
 from api.utils.google_apis import get_auth_flow
-from api.database import upsert_user_tokens
+from api.database.database import upsert_user_tokens
 from api.security import create_access_token
 
-def generate_auth_url() -> tuple[str, str]:
+def generate_auth_url(redirect_uri: str) -> tuple[str, str]:
     """Generate the Google OAuth consent URL and state token."""
-    flow = get_auth_flow()
+    flow = get_auth_flow(redirect_uri)
     authorization_url, state = flow.authorization_url(
         access_type='offline',
         include_granted_scopes='true',
@@ -13,9 +13,9 @@ def generate_auth_url() -> tuple[str, str]:
     )
     return authorization_url, state
 
-def process_oauth_callback(code: str) -> dict:
+def process_oauth_callback(code: str, redirect_uri: str) -> dict:
     """Process the authorization code and return the JWT session data."""
-    flow = get_auth_flow()
+    flow = get_auth_flow(redirect_uri)
     flow.fetch_token(code=code)
     credentials = flow.credentials
     

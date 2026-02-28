@@ -37,7 +37,7 @@ def test_login_redirect():
     assert "client_id" in query_params
     assert query_params["client_id"][0] == settings.GMAIL_CLIENT_ID
     assert "redirect_uri" in query_params
-    assert "http://localhost:8000/auth/callback" in query_params["redirect_uri"][0]
+    assert "auth/callback" in query_params["redirect_uri"][0]
 
 def test_protected_emails_route_no_auth():
     """Test accessing a protected route without a JWT returns 401 Unauthorized"""

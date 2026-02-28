@@ -4,8 +4,8 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from api.core import settings
-from api.database import get_user_tokens, upsert_user_tokens
+from api.core.core import settings
+from api.database.database import get_user_tokens, upsert_user_tokens
 
 # Scopes for Gmail and User Profile
 SCOPES = [
@@ -25,7 +25,10 @@ def get_client_config():
             "token_uri": "https://oauth2.googleapis.com/token",
             "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
             "client_secret": settings.GMAIL_CLIENT_SECRET,
-            "redirect_uris": ["http://localhost:8000/auth/callback"]
+            "redirect_uris": [
+                "http://localhost:8000/auth/callback",
+                "http://127.0.0.1:8000/auth/callback"
+            ]
         }
     }
 

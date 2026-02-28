@@ -1,5 +1,5 @@
 from supabase import create_client, Client
-from api.core import settings
+from api.core.core import settings
 from typing import Optional, Dict
 
 # Initialize Supabase client

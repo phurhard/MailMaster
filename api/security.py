@@ -3,7 +3,7 @@ from typing import Optional
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from api.core import settings
+from api.core.core import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login") # Using login for now
 

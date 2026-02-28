@@ -1,15 +1,17 @@
 from fastapi import APIRouter, Request, HTTPException, Response, Cookie
 from fastapi.responses import RedirectResponse
 from api.services.auth_service import generate_auth_url, process_oauth_callback
+from api.core.core import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.get("/login")
-async def login():
+async def login(request: Request):
     """
     Step 1: Redirect user to Google Authorization Page
     """
-    authorization_url, state = generate_auth_url()
+    redirect_uri = str(request.url_for("callback"))
+    authorization_url, state = generate_auth_url(redirect_uri)
     
     # Store the state in a secure, HTTP-only cookie
     response = RedirectResponse(authorization_url)
@@ -17,7 +19,7 @@ async def login():
         key="oauth_state",
         value=state,
         httponly=True,
-        secure=True,
+        secure=settings.PRODUCTION,
         samesite="lax",
         max_age=600
     )
@@ -35,10 +37,13 @@ async def callback(request: Request, response: Response, oauth_state: str | None
         raise HTTPException(status_code=400, detail="Authorization code not found")
         
     if not oauth_state or returned_state != oauth_state:
+        # Logging for the local console
+        print(f"CSRF Trace - Cookie State: {oauth_state}, Query State: {returned_state}")
         raise HTTPException(status_code=400, detail="Invalid state parameter or state cookie missing. CSRF verification failed.")
 
     try:
-        result = process_oauth_callback(code)
+        redirect_uri = str(request.url_for("callback"))
+        result = process_oauth_callback(code, redirect_uri)
         
         # We can clear the state cookie now that it's been used
         response.delete_cookie('oauth_state')

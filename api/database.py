@@ -1,37 +1,41 @@
-import sqlite3
-from oauth2client.client import Credentials
+from supabase import create_client, Client
+from api.core import settings
+from typing import Optional, Dict
 
-def initialize_db():
-    """Initialize the SQLite database and create the credentials table if it doesn't exist."""
-    conn = sqlite3.connect('credentials.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS user_credentials (
-            user_id TEXT PRIMARY KEY,
-            credentials TEXT NOT NULL
-        )
-    ''')
-    conn.commit()
-    conn.close()
+# Initialize Supabase client
+supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_ANON_KEY)
 
-def store_credentials(user_id, credentials):
-    """Store OAuth 2.0 credentials in the SQLite database."""
-    conn = sqlite3.connect('credentials.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO user_credentials (user_id, credentials)
-        VALUES (?, ?)
-    ''', (user_id, credentials.to_json()))
-    conn.commit()
-    conn.close()
+def upsert_user_tokens(user_id: str, email: str, tokens: Dict):
+    """
+    Store or update a user's Google OAuth tokens in the database.
+    Requires table: user_tokens (id, email, access_token, refresh_token, token_uri, client_id, client_secret, scopes)
+    """
+    data = {
+        "id": user_id,
+        "email": email,
+        "access_token": tokens.get("token"),
+        "refresh_token": tokens.get("refresh_token"),
+        "token_uri": tokens.get("token_uri"),
+        "client_id": tokens.get("client_id"),
+        "client_secret": tokens.get("client_secret"),
+        "scopes": tokens.get("scopes", [])
+    }
+    
+    # Supabase UPSERT
+    response = supabase.table("user_tokens").upsert(data).execute()
+    return response
 
-def get_stored_credentials(user_id):
-    """Retrieve stored credentials for the provided user ID."""
-    conn = sqlite3.connect('credentials.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT credentials FROM user_credentials WHERE user_id = ?', (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if row:
-        return Credentials.new_from_json(row[0])
+def get_user_tokens(user_id: str) -> Optional[Dict]:
+    """ Fetch the Google OAuth tokens for a user. """
+    response = supabase.table("user_tokens").select("*").eq("id", user_id).execute()
+    if response.data and len(response.data) > 0:
+        row = response.data[0]
+        return {
+            "token": row.get("access_token"),
+            "refresh_token": row.get("refresh_token"),
+            "token_uri": row.get("token_uri"),
+            "client_id": row.get("client_id"),
+            "client_secret": row.get("client_secret"),
+            "scopes": row.get("scopes", [])
+        }
     return None

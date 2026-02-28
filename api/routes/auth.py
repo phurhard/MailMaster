@@ -1,47 +1,50 @@
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Response, Cookie
 from fastapi.responses import RedirectResponse
-from api.utils.google_apis import get_auth_flow
-import os
+from api.services.auth_service import generate_auth_url, process_oauth_callback
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-CLIENT_SECRET_FILE = 'client_secret.json'
 
 @router.get("/login")
 async def login():
     """
     Step 1: Redirect user to Google Authorization Page
     """
-    flow = get_auth_flow(CLIENT_SECRET_FILE)
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'
+    authorization_url, state = generate_auth_url()
+    
+    # Store the state in a secure, HTTP-only cookie
+    response = RedirectResponse(authorization_url)
+    response.set_cookie(
+        key="oauth_state",
+        value=state,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=600
     )
-    # In a real app, you'd store the state in a session to verify it in callback
-    return RedirectResponse(authorization_url)
+    return response
 
 @router.get("/callback")
-async def callback(request: Request):
+async def callback(request: Request, response: Response, oauth_state: str | None = Cookie(default=None)):
     """
     Step 2: Receive authorization code and exchange for tokens
     """
     code = request.query_params.get('code')
+    returned_state = request.query_params.get('state')
+
     if not code:
         raise HTTPException(status_code=400, detail="Authorization code not found")
-
-    flow = get_auth_flow(CLIENT_SECRET_FILE)
-    try:
-        flow.fetch_token(code=code)
-        credentials = flow.credentials
         
-        # In a real app, we would store this in Supabase/Postgres
-        # For now, let's return a success message
-        return {
-            "message": "Successfully authenticated!",
-            "token": credentials.token,
-            "refresh_token": credentials.refresh_token,
-            "expiry": credentials.expiry
-        }
+    if not oauth_state or returned_state != oauth_state:
+        raise HTTPException(status_code=400, detail="Invalid state parameter or state cookie missing. CSRF verification failed.")
+
+    try:
+        result = process_oauth_callback(code)
+        
+        # We can clear the state cookie now that it's been used
+        response.delete_cookie('oauth_state')
+        
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

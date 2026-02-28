@@ -1,29 +1,49 @@
 import os
 import json
-from google_auth_oauthlib.flow import InstalledAppFlow, Flow
+from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from api.core import settings
+from api.database import get_user_tokens, upsert_user_tokens
 
-# Scopes for Gmail
-SCOPES = ['https://mail.google.com/']
+# Scopes for Gmail and User Profile
+SCOPES = [
+    'https://mail.google.com/',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'openid'
+]
 
-def get_auth_flow(client_secret_file, redirect_uri='http://localhost:8000/auth/callback'):
+def get_client_config():
+    """Build the Google Client config dictionary from settings"""
+    return {
+        "web": {
+            "client_id": settings.GMAIL_CLIENT_ID,
+            "project_id": settings.GMAIL_PROJECT_ID,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_secret": settings.GMAIL_CLIENT_SECRET,
+            "redirect_uris": ["http://localhost:8000/auth/callback"]
+        }
+    }
+
+def get_auth_flow(redirect_uri='http://localhost:8000/auth/callback'):
     """Create a flow instance for multi-user OAuth."""
-    return Flow.from_client_secrets_file(
-        client_secret_file,
+    return Flow.from_client_config(
+        get_client_config(),
         scopes=SCOPES,
         redirect_uri=redirect_uri
     )
 
-def create_service(client_secret_file, api_name, api_version, *scopes, prefix='', user_id=None):
+def create_service(api_name='gmail', api_version='v1', *scopes, user_id=None):
     """
-    Revised create_service that can handle multiple users or fall back to local token.
+    Revised create_service that fetches user token from Supabase based on user_id.
     """
-    CLIENT_SECRET_FILE = client_secret_file
-    API_SERVICE_NAME = api_name
-    API_VERSION = api_version
-    
+    if not user_id:
+        raise ValueError("User ID is required to create a Gmail service")
+
     # If scopes are passed as a list in the first arg of *scopes
     if scopes and isinstance(scopes[0], (list, tuple)):
         final_scopes = list(scopes[0])
@@ -31,32 +51,39 @@ def create_service(client_secret_file, api_name, api_version, *scopes, prefix=''
         final_scopes = list(scopes) if scopes else SCOPES
 
     creds = None
-    token_dir = 'env'
     
-    # Use user_id for token filename if provided, otherwise default
-    token_filename = f"token_{API_SERVICE_NAME}_{API_VERSION}{prefix}.json"
-    if user_id:
-        token_filename = f"token_{user_id}_{API_SERVICE_NAME}.json"
-        
-    token_path = os.path.join(os.getcwd(), token_dir, token_filename)
-
-    if not os.path.exists(os.path.dirname(token_path)):
-        os.makedirs(os.path.dirname(token_path))
-
-    if os.path.exists(token_path):
-        creds = Credentials.from_authorized_user_file(token_path, final_scopes)
+    # Fetch from Supabase
+    token_data = get_user_tokens(user_id)
+    if token_data and token_data.get("token"):
+        creds = Credentials(
+            token=token_data.get("token"),
+            refresh_token=token_data.get("refresh_token"),
+            token_uri=token_data.get("token_uri"),
+            client_id=token_data.get("client_id"),
+            client_secret=token_data.get("client_secret"),
+            scopes=token_data.get("scopes", final_scopes)
+        )
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
+            # Save the refreshed credentials back to Supabase
+            upsert_user_tokens(
+                user_id=user_id,
+                email=token_data.get("email", ""), # Keep the old email
+                tokens={
+                    "token": creds.token,
+                    "refresh_token": creds.refresh_token,
+                    "token_uri": creds.token_uri,
+                    "client_id": creds.client_id,
+                    "client_secret": creds.client_secret,
+                    "scopes": creds.scopes
+                }
+            )
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, final_scopes)
-            creds = flow.run_local_server(port=0)
+            raise ValueError(f"No valid credentials found for user_id: {user_id}. They need to re-authenticate.")
 
-        with open(token_path, 'w') as token:
-            token.write(creds.to_json())
-    
-    return build(API_SERVICE_NAME, API_VERSION, credentials=creds, static_discovery=False)
+    return build(api_name, api_version, credentials=creds, static_discovery=False)
 
 def get_service_from_credentials(creds_json, api_name='gmail', api_version='v1'):
     """Create a service instance from credentials JSON (e.g., from DB)."""

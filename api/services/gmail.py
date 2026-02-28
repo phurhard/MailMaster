@@ -96,6 +96,74 @@ def get_email_message_details(service, msg_id):
     }
 
 
+def get_batch_email_details(service, msg_ids):
+    if not msg_ids:
+        return []
+    
+    results = {}
+    def callback(request_id, response, exception):
+        if exception is not None:
+            import logging
+            logging.getLogger(__name__).error(f"Error fetching message {request_id}: {exception}")
+        else:
+            results[request_id] = response
+            
+    # Process in smaller chunks to avoid Gmail's "Too many concurrent requests for user" limit
+    import time
+    CHUNK_SIZE = 20
+    for i in range(0, len(msg_ids), CHUNK_SIZE):
+        chunk = msg_ids[i:i+CHUNK_SIZE]
+        batch = service.new_batch_http_request(callback=callback)
+        for msg_id in chunk:
+            batch.add(
+                service.users().messages().get(userId='me', id=msg_id, format='full'),
+                request_id=msg_id
+            )
+        batch.execute()
+        
+        # Add a small delay between batches if there are more emails to fetch
+        if i + CHUNK_SIZE < len(msg_ids):
+            time.sleep(0.5)
+        
+    processed_emails = []
+    # maintain original order
+    for msg_id in msg_ids:
+        message = results.get(msg_id)
+        if not message:
+            continue
+            
+        payload = message.get('payload', {})
+        headers = payload.get('headers', [])
+        
+        subject = next((header['value'] for header in headers if header['name'].lower() == 'subject'), message.get('subject', 'No subject'))
+        sender = next((header['value'] for header in headers if header['name'] == 'From'), 'No sender')
+        recipients = next((header['value'] for header in headers if header['name'] == 'To'), 'No recipients')
+        snippet = message.get('snippet', 'No snippet')
+        has_attachments = any(part.get('filename') for part in payload.get('parts', []) if part.get('filename'))
+        date = next((header['value'] for header in headers if header['name'] == 'Date'), 'No date')
+        star = message.get('labelIds', []).count('STARRED') > 0
+        label_list = message.get('labelIds', [])
+        label = ', '.join(label_list) if isinstance(label_list, list) else ''
+        
+        body = _extract_body(payload)
+        
+        processed_emails.append({
+            'subject': subject,
+            'sender': sender,
+            'recipients': recipients,
+            'body': body,
+            'snippet': snippet,
+            'has_attachments': has_attachments,
+            'date': date,
+            'star': star,
+            'label': label,
+            'size_estimate': message.get('sizeEstimate', 0),
+            'id': msg_id
+        })
+        
+    return processed_emails
+
+
 def send_email(service, to, subject, body, body_type='plain', attachment_paths=None):
     message = MIMEMultipart()
     message['to'] = to

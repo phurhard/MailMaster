@@ -19,12 +19,12 @@ def get_user_gmail_service(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=401, detail=str(e))
 
 @router.get("/search/{keyword}")
-async def search_emails_by_keyword(keyword: str, service = Depends(get_user_gmail_service)) -> List[Dict]:
+async def search_emails_by_keyword(keyword: str, limit: int = 20, service = Depends(get_user_gmail_service)) -> List[Dict]:
     """
     Search emails containing the specified keyword
     """
     try:
-        return search_and_format_emails(service, keyword)
+        return search_and_format_emails(service, keyword, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -49,11 +49,11 @@ async def categorize_email(email_id: str, service = Depends(get_user_gmail_servi
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/cleanup-suggestions")
-async def get_cleanup_suggestions(service = Depends(get_user_gmail_service)):
+async def get_cleanup_suggestions(limit: int = 20, service = Depends(get_user_gmail_service)):
     """
     Get suggestions for emails to clean up (large attachments, etc.)
     """
     try:
-        return get_formatted_cleanup_suggestions(service)
+        return get_formatted_cleanup_suggestions(service, limit)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

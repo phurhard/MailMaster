@@ -12,6 +12,7 @@ export default function Dashboard() {
     const [, setLocation] = useLocation();
     const [activeTab, setActiveTab] = useState('inbox');
     const [searchQuery, setSearchQuery] = useState('');
+    const [limit, setLimit] = useState(20);
     const [selectedEmail, setSelectedEmail] = useState<any>(null);
     const [isSidebarOpen] = useState(true);
 
@@ -41,11 +42,11 @@ export default function Dashboard() {
 
     // Fetch emails
     const { data: emails, isLoading, refetch } = useQuery({
-        queryKey: ['emails', searchQuery],
+        queryKey: ['emails', searchQuery, limit],
         queryFn: async () => {
             const endpoint = searchQuery
-                ? `${API_BASE}/emails/search/${searchQuery}`
-                : `${API_BASE}/emails/search/in:inbox`;
+                ? `${API_BASE}/emails/search/${searchQuery}?limit=${limit}`
+                : `${API_BASE}/emails/search/in:inbox?limit=${limit}`;
             const res = await authorizedFetch(endpoint);
             return res.json();
         },
@@ -160,6 +161,16 @@ export default function Dashboard() {
                                                 <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{email.snippet}</p>
                                             </div>
                                         ))}
+                                        {emails && emails.length >= limit && (
+                                            <div className="p-4 flex justify-center sticky bottom-0 bg-white border-t border-slate-100">
+                                                <button
+                                                    onClick={() => setLimit(l => l + 20)}
+                                                    className="w-full text-sm font-bold text-slate-700 hover:text-blue-700 bg-slate-50 hover:bg-blue-50 px-5 py-3 rounded-xl transition-all border border-slate-200 hover:border-blue-200 shadow-sm"
+                                                >
+                                                    Load Older Emails
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>

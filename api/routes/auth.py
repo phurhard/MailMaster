@@ -3,6 +3,10 @@ from fastapi.responses import RedirectResponse
 from api.services.auth_service import generate_auth_url, process_oauth_callback
 from api.core.core import settings
 
+from api.core.logger import setup_logger
+
+logger = setup_logger(__name__)
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.get("/login")
@@ -38,7 +42,7 @@ async def callback(request: Request, response: Response, oauth_state: str | None
         
     if not oauth_state or returned_state != oauth_state:
         # Logging for the local console
-        print(f"CSRF Trace - Cookie State: {oauth_state}, Query State: {returned_state}")
+        logger.warning(f"CSRF Trace - Cookie State: {oauth_state}, Query State: {returned_state}")
         raise HTTPException(status_code=400, detail="Invalid state parameter or state cookie missing. CSRF verification failed.")
 
     try:

@@ -1,5 +1,10 @@
+import litellm
 from litellm import completion
 from api.core.core import settings
+from api.core.logger import setup_logger
+
+litellm._turn_on_debug()
+logger = setup_logger(__name__)
 
 def summarize_email_content(content: str) -> str:
     """
@@ -24,12 +29,13 @@ def summarize_email_content(content: str) -> str:
 
     try:
         response = completion(
-            model="gpt-3.5-turbo",
+            model=settings.OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             api_key=settings.OPENAI_API_KEY
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
+        logger.error(f"Error generating summary: {str(e)}")
         return f"Error generating summary: {str(e)}"
 
 def categorize_email_content(subject: str, snippet: str) -> str:
@@ -49,10 +55,11 @@ def categorize_email_content(subject: str, snippet: str) -> str:
 
     try:
         response = completion(
-            model="gpt-3.5-turbo",
+            model=settings.OPENAI_MODEL,
             messages=[{"role": "user", "content": prompt}],
             api_key=settings.OPENAI_API_KEY
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
+        logger.error(f"Error categorizing email: {str(e)}")
         return "Other"

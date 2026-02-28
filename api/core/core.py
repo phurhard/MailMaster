@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     PRODUCTION: bool = False
     FRONTEND_URL: str = "http://localhost:5173"
     OPENAI_API_KEY: str
+    LITELLM_LOG: str = "INFO"
+    OPENAI_MODEL: str = "gpt-4o-mini"
 
     model_config = SettingsConfigDict(
         env_file=".env",

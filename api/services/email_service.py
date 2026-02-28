@@ -1,18 +1,24 @@
 from api.services.gmail import search_emails, get_email_message_details, list_large_emails
 from api.services.ai_service import summarize_email_content, categorize_email_content
 from typing import List, Dict
+import html
 
 def search_and_format_emails(service, keyword: str) -> List[Dict]:
     email_messages = search_emails(service, query=keyword, max_results=10)
     results = []
     for email in email_messages:
         email_details = get_email_message_details(service, email['id'])
+        
+        # Decode HTML entities like &#39; to '
+        raw_snippet = email_details.get('snippet', '')
+        clean_snippet = html.unescape(raw_snippet)
+        
         results.append({
             'id': email['id'],
             'subject': email_details.get('subject', ''),
             'from': email_details.get('sender', ''),
             'date': email_details.get('date', ''),
-            'snippet': email_details.get('snippet', ''),
+            'snippet': clean_snippet,
             'labels': email_details.get('label', [])
         })
     return results

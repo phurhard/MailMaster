@@ -9,11 +9,12 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_ANON_KEY: str
 
-    JWT_SECRET: str = "your-secret-key"
+    JWT_SECRET: str = "a-very-secure-and-long-secret-key-that-is-at-least-thirty-two-bytes"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     PRODUCTION: bool = False
     FRONTEND_URL: str = "http://localhost:5173"
+    OPENAI_API_KEY: str
 
     model_config = SettingsConfigDict(
         env_file=".env",

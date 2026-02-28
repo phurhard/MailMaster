@@ -1,12 +1,5 @@
 from litellm import completion
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# For demo purposes, we'll try to get the key from env, 
-# or fall back to the one in the notebook if missing (though better to use env)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+from api.core.core import settings
 
 def summarize_email_content(content: str) -> str:
     """
@@ -33,7 +26,7 @@ def summarize_email_content(content: str) -> str:
         response = completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            api_key=OPENAI_API_KEY
+            api_key=settings.OPENAI_API_KEY
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -58,7 +51,7 @@ def categorize_email_content(subject: str, snippet: str) -> str:
         response = completion(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            api_key=OPENAI_API_KEY
+            api_key=settings.OPENAI_API_KEY
         )
         return response.choices[0].message.content.strip()
     except Exception as e:

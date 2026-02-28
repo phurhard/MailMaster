@@ -48,7 +48,9 @@ async def callback(request: Request, response: Response, oauth_state: str | None
         # We can clear the state cookie now that it's been used
         response.delete_cookie('oauth_state')
         
-        return result
+        access_token = result.get("access_token")
+        frontend_redirect_url = f"{settings.FRONTEND_URL}/login/success?token={access_token}"
+        return RedirectResponse(frontend_redirect_url)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

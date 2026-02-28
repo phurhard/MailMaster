@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from app import app
-from api.core import settings
+from api.core.core import settings
 import urllib.parse
 
 client = TestClient(app)

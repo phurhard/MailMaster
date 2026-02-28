@@ -62,8 +62,8 @@ def create_service(api_name='gmail', api_version='v1', *scopes, user_id=None):
             token=token_data.get("token"),
             refresh_token=token_data.get("refresh_token"),
             token_uri=token_data.get("token_uri"),
-            client_id=token_data.get("client_id"),
-            client_secret=token_data.get("client_secret"),
+            client_id=settings.GMAIL_CLIENT_ID,
+            client_secret=settings.GMAIL_CLIENT_SECRET,
             scopes=token_data.get("scopes", final_scopes)
         )
 
@@ -78,8 +78,6 @@ def create_service(api_name='gmail', api_version='v1', *scopes, user_id=None):
                     "token": creds.token,
                     "refresh_token": creds.refresh_token,
                     "token_uri": creds.token_uri,
-                    "client_id": creds.client_id,
-                    "client_secret": creds.client_secret,
                     "scopes": creds.scopes
                 }
             )

@@ -16,8 +16,6 @@ def upsert_user_tokens(user_id: str, email: str, tokens: Dict):
         "access_token": tokens.get("token"),
         "refresh_token": tokens.get("refresh_token"),
         "token_uri": tokens.get("token_uri"),
-        "client_id": tokens.get("client_id"),
-        "client_secret": tokens.get("client_secret"),
         "scopes": tokens.get("scopes", [])
     }
     
@@ -34,8 +32,6 @@ def get_user_tokens(user_id: str) -> Optional[Dict]:
             "token": row.get("access_token"),
             "refresh_token": row.get("refresh_token"),
             "token_uri": row.get("token_uri"),
-            "client_id": row.get("client_id"),
-            "client_secret": row.get("client_secret"),
             "scopes": row.get("scopes", [])
         }
     return None

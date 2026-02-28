@@ -166,3 +166,5 @@ api/agents/agent.ipynb
 connect-supabase*
 __*
 api/integrations/node_modules/
+
+.*

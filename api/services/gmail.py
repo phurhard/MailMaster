@@ -90,7 +90,9 @@ def get_email_message_details(service, msg_id):
         'has_attachments': has_attachments,
         'date': date,
         'star': star,
-        'label': label
+        'label': label,
+        'size_estimate': message.get('sizeEstimate', 0),
+        'id': msg_id
     }
 
 
@@ -179,6 +181,14 @@ def search_emails(service, query, user_id='me', max_results=5):
         if not next_page_token or (max_results and len(messages) >= max_results):
             break
     return messages[:max_results] if max_results else messages
+
+def list_large_emails(service, min_size_mb=5, max_results=20):
+    """
+    Find emails larger than a certain size.
+    query: larger:5M
+    """
+    query = f"larger:{min_size_mb}M"
+    return search_emails(service, query, max_results=max_results)
 
 
 def search_email_conversations(service, query, user_id='me', max_results=5):
@@ -402,7 +412,9 @@ def get_draft_email_message_details(service, draft_id, format='full'):
         'has_attachments': has_attachments,
         'date': date,
         'star': star,
-        'label': label
+        'label': label,
+        'size_estimate': message.get('sizeEstimate', 0),
+        'id': msg_id
     }
 
 def send_draft_email(service, draft_id):

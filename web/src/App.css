@@ -40,3 +40,32 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Email Body Content Styling */
+.email-body-container {
+  font-family: 'Inter', sans-serif;
+  line-height: 1.6;
+  color: #334155;
+}
+
+.email-body-container img {
+  max-width: 100% !important;
+  height: auto !important;
+  border-radius: 8px;
+}
+
+.email-body-container a {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.email-body-container table {
+  width: 100% !important;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.email-body-container td, .email-body-container th {
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+}

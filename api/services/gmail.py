@@ -13,20 +13,92 @@ def init_gmail_service(client_file, api_name='gmail', api_version='v1', scopes=[
 
 
 def _extract_body(payload):
-    body = '<Text body not available>'
+    """Recursively extract body content, prioritizing text/html."""
+    html_content = ""
+    text_content = ""
+
+    def walk_parts(parts):
+        nonlocal html_content, text_content
+        for part in parts:
+            mime = part.get('mimeType')
+            data = part.get('body', {}).get('data')
+            if mime == 'text/plain' and data:
+                text_content = base64.urlsafe_b64decode(data).decode('utf-8')
+            elif mime == 'text/html' and data:
+                html_content = base64.urlsafe_b64decode(data).decode('utf-8')
+            elif 'parts' in part:
+                walk_parts(part['parts'])
+
+    if 'parts' in payload:
+        walk_parts(payload['parts'])
+    elif 'body' in payload and 'data' in payload['body']:
+        data = payload['body']['data']
+        mime = payload.get('mimeType')
+        if mime == 'text/plain':
+            text_content = base64.urlsafe_b64decode(data).decode('utf-8')
+        elif mime == 'text/html':
+            html_content = base64.urlsafe_b64decode(data).decode('utf-8')
+
+    return html_content or text_content or '<Body not available>'
+
+def _extract_attachments(payload):
+    """Recursively extract attachment metadata."""
+    attachments = []
+    if not payload:
+        return []
     if 'parts' in payload:
         for part in payload['parts']:
-            if part['mimeType'] == 'multipart/alternative':
-                for subpart in part['parts']:
-                    if subpart['mimeType'] == 'text/plain' and 'data' in subpart['body']:
-                        body = base64.urlsafe_b64decode(subpart['body']['data']).decode('utf-8')
-                        break
-            elif part['mimeType'] == 'text/plain' and 'data' in part['body']:
-                body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                break
-    elif 'body' in payload and 'data' in payload['body']:
-        body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
-    return body
+            filename = part.get('filename')
+            if filename:
+                body = part.get('body', {})
+                attachments.append({
+                    'filename': filename,
+                    'mimeType': part.get('mimeType'),
+                    'id': body.get('attachmentId'),
+                    'size': body.get('size', 0)
+                })
+            elif 'parts' in part:
+                attachments.extend(_extract_attachments(part))
+    return attachments
+
+def list_labels(service):
+    """List all labels for the user."""
+    results = service.users().labels().list(userId='me').execute()
+    return results.get('labels', [])
+
+def ensure_label_exists(service, label_name):
+    """Checks if a label exists, if not creates it. Returns label ID."""
+    results = service.users().labels().list(userId='me').execute()
+    labels = results.get('labels', [])
+    for label in labels:
+        if label['name'] == label_name:
+            return label['id']
+    
+    # Create label
+    label_body = {
+        'name': label_name,
+        'labelListVisibility': 'labelShow',
+        'messageListVisibility': 'show'
+    }
+    created_label = service.users().labels().create(userId='me', body=label_body).execute()
+    return created_label['id']
+
+def modify_email_labels(service, user_id, message_id, add_labels=None, remove_labels=None):
+    """Apply/Remove labels from a message."""
+    body = {}
+    if add_labels:
+        body['addLabelIds'] = add_labels
+    if remove_labels:
+        body['removeLabelIds'] = remove_labels
+    
+    if not body:
+        return
+        
+    return service.users().messages().modify(
+        userId=user_id,
+        id=message_id,
+        body=body
+    ).execute()
 
 
 def get_email_messages(service, user_id='me', label_ids=None, folder_name='INBOX', max_results=10):
@@ -67,19 +139,22 @@ def get_email_message_details(service, msg_id):
     payload = message['payload']
     headers = payload.get('headers', [])
 
-    subject = next((header['value'] for header in headers if header['name'].lower() == 'subject'), None)
-    if not subject:
-        subject = message.get('subject', 'No subject')
-    
-    sender = next((header['value'] for header in headers if header['name'] == 'From'), 'No sender')
-    recipients = next((header['value'] for header in headers if header['name'] == 'To'), 'No recipients')
+    subject = next((header['value'] for header in headers if header['name'].lower() == 'subject'), message.get('subject', 'No subject'))
+    sender = next((header['value'] for header in headers if header['name'].lower() == 'from'), 'No sender')
+    recipients = next((header['value'] for header in headers if header['name'].lower() == 'to'), 'No recipients')
     snippet = message.get('snippet', 'No snippet')
     has_attachments = any(part.get('filename') for part in payload.get('parts', []) if part.get('filename'))
-    date = next((header['value'] for header in headers if header['name'] == 'Date'), 'No date')
-    star = message.get('labelsIds', []).count('STARRED') > 0
+    date = next((header['value'] for header in headers if header['name'].lower() == 'date'), 'No date')
+    star = message.get('labelIds', []).count('STARRED') > 0
     label = ', '.join(message.get('labelIds', []))
 
+    # Extended headers for categorization
+    list_unsubscribe = next((header['value'] for header in headers if header['name'].lower() == 'list-unsubscribe'), None)
+    x_mailer = next((header['value'] for header in headers if header['name'].lower() == 'x-mailer'), None)
+    precedence = next((header['value'] for header in headers if header['name'].lower() == 'precedence'), None)
+
     body = _extract_body(payload)
+    attachments = _extract_attachments(payload)
 
     return {
         'subject': subject,
@@ -87,12 +162,18 @@ def get_email_message_details(service, msg_id):
         'recipients': recipients,
         'body': body,
         'snippet': snippet,
-        'has_attachments': has_attachments,
+        'has_attachments': len(attachments) > 0,
+        'attachments': attachments,
         'date': date,
         'star': star,
         'label': label,
         'size_estimate': message.get('sizeEstimate', 0),
-        'id': msg_id
+        'id': msg_id,
+        'headers': {
+            'list_unsubscribe': list_unsubscribe,
+            'x_mailer': x_mailer,
+            'precedence': precedence
+        }
     }
 
 
@@ -136,16 +217,22 @@ def get_batch_email_details(service, msg_ids):
         headers = payload.get('headers', [])
         
         subject = next((header['value'] for header in headers if header['name'].lower() == 'subject'), message.get('subject', 'No subject'))
-        sender = next((header['value'] for header in headers if header['name'] == 'From'), 'No sender')
-        recipients = next((header['value'] for header in headers if header['name'] == 'To'), 'No recipients')
+        sender = next((header['value'] for header in headers if header['name'].lower() == 'from'), 'No sender')
+        recipients = next((header['value'] for header in headers if header['name'].lower() == 'to'), 'No recipients')
         snippet = message.get('snippet', 'No snippet')
         has_attachments = any(part.get('filename') for part in payload.get('parts', []) if part.get('filename'))
-        date = next((header['value'] for header in headers if header['name'] == 'Date'), 'No date')
+        date = next((header['value'] for header in headers if header['name'].lower() == 'date'), 'No date')
         star = message.get('labelIds', []).count('STARRED') > 0
         label_list = message.get('labelIds', [])
         label = ', '.join(label_list) if isinstance(label_list, list) else ''
         
+        # Extended headers for categorization
+        list_unsubscribe = next((header['value'] for header in headers if header['name'].lower() == 'list-unsubscribe'), None)
+        x_mailer = next((header['value'] for header in headers if header['name'].lower() == 'x-mailer'), None)
+        precedence = next((header['value'] for header in headers if header['name'].lower() == 'precedence'), None)
+
         body = _extract_body(payload)
+        attachments = _extract_attachments(payload)
         
         processed_emails.append({
             'subject': subject,
@@ -153,12 +240,18 @@ def get_batch_email_details(service, msg_ids):
             'recipients': recipients,
             'body': body,
             'snippet': snippet,
-            'has_attachments': has_attachments,
+            'has_attachments': len(attachments) > 0,
+            'attachments': attachments,
             'date': date,
             'star': star,
             'label': label,
             'size_estimate': message.get('sizeEstimate', 0),
-            'id': msg_id
+            'id': msg_id,
+            'headers': {
+                'list_unsubscribe': list_unsubscribe,
+                'x_mailer': x_mailer,
+                'precedence': precedence
+            }
         })
         
     return processed_emails
@@ -200,6 +293,17 @@ def send_email(service, to, subject, body, body_type='plain', attachment_paths=N
         body={'raw': raw_message}
     ).execute()
     return sent_message
+
+
+def get_attachment_data(service, user_id, message_id, attachment_id):
+    """Fetch the raw attachment data."""
+    attachment = service.users().messages().attachments().get(
+        userId=user_id, messageId=message_id, id=attachment_id
+    ).execute()
+    data = attachment.get('data')
+    if not data:
+        return b""
+    return base64.urlsafe_b64decode(data.encode('UTF-8'))
 
 
 def download_attachments_parent(service, user_id, msg_id, target_dir):

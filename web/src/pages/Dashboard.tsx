@@ -2,19 +2,25 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import {
-    Mail, Trash2, Sparkles, Settings as SettingsIcon,
-    Search, AlertTriangle, BarChart3, RefreshCw, LogOut, Loader2
+    Mail, Trash2, Sparkles,
+    Search, AlertTriangle, BarChart3, RefreshCw, LogOut, Loader2,
+    Paperclip, Download, ChevronDown, ChevronUp, Check, X, Tag, Info, Send
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
 
 export default function Dashboard() {
     const [, setLocation] = useLocation();
-    const [activeTab, setActiveTab] = useState('inbox');
+    const [activeTab, setActiveTab] = useState<string>('inbox');
     const [searchQuery, setSearchQuery] = useState('');
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [limit, setLimit] = useState(20);
     const [selectedEmail, setSelectedEmail] = useState<any>(null);
     const [isSidebarOpen] = useState(true);
+    const [isSummarizing, setIsSummarizing] = useState(false);
+    const [isCategorizing, setIsCategorizing] = useState(false);
+    const [isBatchCategorizing, setIsBatchCategorizing] = useState(false);
+    const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
 
     const token = localStorage.getItem('auth_token');
 
@@ -48,7 +54,13 @@ export default function Dashboard() {
                 ? `${API_BASE}/emails/search/${searchQuery}?limit=${limit}`
                 : `${API_BASE}/emails/search/in:inbox?limit=${limit}`;
             const res = await authorizedFetch(endpoint);
-            return res.json();
+            const data = await res.json();
+
+            // Auto-select first email if none selected and emails exist
+            if (data.length > 0 && !selectedEmail) {
+                setSelectedEmail(data[0]);
+            }
+            return data;
         },
         enabled: !!token,
         retry: 1
@@ -66,15 +78,106 @@ export default function Dashboard() {
     });
 
     const handleSummarize = async (id: string) => {
-        const res = await authorizedFetch(`${API_BASE}/emails/${id}/summarize`, { method: 'POST' });
-        const data = await res.json();
-        setSelectedEmail((prev: any) => ({ ...prev, summary: data.summary }));
+        if (isSummarizing) return;
+        setIsSummarizing(true);
+        try {
+            const res = await authorizedFetch(`${API_BASE}/emails/${id}/summarize`, { method: 'POST' });
+            const data = await res.json();
+            setSelectedEmail((prev: any) => ({ ...prev, summary: data.summary }));
+        } finally {
+            setIsSummarizing(false);
+        }
     };
 
-    const handleCategorize = async (id: string) => {
-        const res = await authorizedFetch(`${API_BASE}/emails/${id}/categorize`, { method: 'POST' });
-        const data = await res.json();
-        setSelectedEmail((prev: any) => ({ ...prev, category: data.category }));
+    const handleCategorize = async (id: string, currentEmail: any) => {
+        if (isCategorizing) return;
+        setIsCategorizing(true);
+        try {
+            const res = await authorizedFetch(`${API_BASE}/emails/${id}/categorize`, { method: 'POST' });
+            const data = await res.json();
+            const updated = { ...currentEmail, category: data.category, reasoning: data.reasoning };
+            if (selectedEmail?.id === id) setSelectedEmail(updated);
+
+            // Remove from list if it was moved to a label (since we are in 'Smart Inbox' usually viewing INBOX)
+            refetch();
+        } finally {
+            setIsCategorizing(false);
+        }
+    };
+
+    const handleBatchCategorize = async () => {
+        if (isBatchCategorizing || selectedIds.length === 0) return;
+        setIsBatchCategorizing(true);
+        try {
+            await authorizedFetch(`${API_BASE}/emails/batch/categorize`, {
+                method: 'POST',
+                body: JSON.stringify({ email_ids: selectedIds })
+            });
+            setSelectedIds([]);
+            refetch();
+        } finally {
+            setIsBatchCategorizing(false);
+        }
+    };
+
+    const handleRemoveLabel = async (emailId: string, labelName: string) => {
+        try {
+            await authorizedFetch(`${API_BASE}/emails/${emailId}/labels/${encodeURIComponent(labelName)}`, {
+                method: 'DELETE'
+            });
+            refetch();
+            if (selectedEmail?.id === emailId) {
+                // Optimistic UI update or just clear to force refresh
+                setSelectedEmail(null);
+            }
+        } catch (err) {
+            console.error("Failed to remove label", err);
+        }
+    };
+
+    const toggleSelect = (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setSelectedIds(prev =>
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAll = () => {
+        if (!emails) return;
+        if (selectedIds.length === emails.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds(emails.map((e: any) => e.id));
+        }
+    };
+
+    const getCategoryColor = (cat: string) => {
+        const c = cat?.toLowerCase() || '';
+        if (c.includes('priority')) return 'bg-blue-100 text-blue-700 border-blue-200';
+        if (c.includes('newsletter')) return 'bg-teal-100 text-teal-700 border-teal-200';
+        if (c.includes('ad')) return 'bg-amber-100 text-amber-700 border-amber-200';
+        if (c.includes('social')) return 'bg-indigo-100 text-indigo-700 border-indigo-200';
+        if (c.includes('billing')) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+        if (c.includes('spam')) return 'bg-red-100 text-red-700 border-red-200';
+        return 'bg-slate-100 text-slate-700 border-slate-200';
+    };
+
+    const formatDate = (dateString: string) => {
+        if (!dateString) return '';
+        try {
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString;
+            return new Intl.DateTimeFormat(undefined, {
+                weekday: 'short',
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            }).format(date);
+        } catch (e) {
+            return dateString;
+        }
     };
 
     return (
@@ -90,6 +193,7 @@ export default function Dashboard() {
 
                 <nav className="flex-1 px-4 space-y-2 mt-4">
                     <NavItem icon={<Mail size={20} />} label="Smart Inbox" active={activeTab === 'inbox'} onClick={() => setActiveTab('inbox')} collapsed={!isSidebarOpen} />
+                    <NavItem icon={<Send size={20} />} label="Sent Mail" active={activeTab === 'sent'} onClick={() => setActiveTab('sent')} collapsed={!isSidebarOpen} />
                     <NavItem icon={<AlertTriangle size={20} />} label="Space Optimizer" active={activeTab === 'cleanup'} onClick={() => setActiveTab('cleanup')} collapsed={!isSidebarOpen} />
                     <NavItem icon={<BarChart3 size={20} />} label="Analytics" active={activeTab === 'stats'} onClick={() => setActiveTab('stats')} collapsed={!isSidebarOpen} />
                 </nav>
@@ -119,6 +223,11 @@ export default function Dashboard() {
                     </div>
 
                     <div className="flex items-center gap-4">
+                        {isBatchCategorizing && (
+                            <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-xs font-bold animate-pulse border border-blue-100">
+                                <Loader2 size={12} className="animate-spin" /> Batch Processing...
+                            </div>
+                        )}
                         <button onClick={() => refetch()} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors relative group">
                             <RefreshCw size={20} className={isLoading ? "animate-spin text-blue-500" : ""} />
                         </button>
@@ -134,10 +243,39 @@ export default function Dashboard() {
                         <>
                             {/* Email List */}
                             <div className="w-1/3 xl:w-1/4 min-w-[320px] border-r border-slate-200 overflow-y-auto bg-white flex flex-col">
-                                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center sticky top-0 z-10">
-                                    <h3 className="font-semibold text-slate-800">Inbox Results</h3>
+                                <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center sticky top-0 z-10 gap-3">
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="checkbox"
+                                            className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                            checked={emails?.length > 0 && selectedIds.length === emails?.length}
+                                            onChange={toggleSelectAll}
+                                        />
+                                        <h3 className="font-semibold text-slate-800">Inbox Results</h3>
+                                    </div>
                                     <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2.5 py-1 rounded-full">{emails?.length || 0}</span>
                                 </div>
+
+                                {selectedIds.length > 0 && (
+                                    <div className="mx-4 mt-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg ring-1 ring-white/20 flex items-center justify-between text-white shrink-0">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center text-[10px] font-black">{selectedIds.length}</div>
+                                            <span className="text-sm font-bold tracking-tight">Selected</span>
+                                        </div>
+                                        <button
+                                            disabled={isBatchCategorizing}
+                                            onClick={handleBatchCategorize}
+                                            className="flex items-center gap-1.5 px-3 py-1 bg-white/20 hover:bg-white text-white hover:text-blue-700 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                                        >
+                                            {isBatchCategorizing ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
+                                            Categorize
+                                        </button>
+                                        <button onClick={() => setSelectedIds([])} className="p-1 hover:bg-white/10 rounded-full transition-colors">
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                )}
+
                                 {isLoading ? (
                                     <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>
                                 ) : emails?.length === 0 ? (
@@ -151,14 +289,43 @@ export default function Dashboard() {
                                             <div
                                                 key={email.id}
                                                 onClick={() => setSelectedEmail(email)}
-                                                className={`p-5 cursor-pointer hover:bg-slate-50 transition-all ${selectedEmail?.id === email.id ? 'bg-blue-50/60 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'}`}
+                                                className={`p-5 cursor-pointer hover:bg-slate-50 transition-all flex gap-4 ${selectedEmail?.id === email.id ? 'bg-blue-50/60 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'}`}
                                             >
-                                                <div className="flex justify-between items-center mb-1.5">
-                                                    <span className="font-bold text-slate-900 truncate pr-2">{email.from.split(' <')[0]}</span>
-                                                    <span className="text-xs font-medium text-slate-400 whitespace-nowrap">{email.date}</span>
+                                                <div className="pt-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                                        checked={selectedIds.includes(email.id)}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onChange={() => toggleSelect(email.id)}
+                                                    />
                                                 </div>
-                                                <h4 className="text-sm font-semibold text-slate-800 line-clamp-1 mb-1">{email.subject}</h4>
-                                                <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{email.snippet}</p>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between items-center mb-1.5">
+                                                        <span className="font-bold text-slate-900 truncate pr-2">
+                                                            {activeTab === 'sent' ? `To: ${email.to?.split(' <')[0] || 'Recipient'}` : email.from.split(' <')[0]}
+                                                        </span>
+                                                        <div className="flex items-center gap-2">
+                                                            {activeTab === 'sent' && (
+                                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${email.opened ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                                                    {email.opened ? 'Read' : 'Sent'}
+                                                                </span>
+                                                            )}
+                                                            <span className="text-xs font-medium text-slate-400 whitespace-nowrap">{formatDate(email.date)}</span>
+                                                        </div>
+                                                    </div>
+                                                    <h4 className="text-sm font-semibold text-slate-800 line-clamp-1 mb-1">{email.subject}</h4>
+                                                    <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-2">{email.snippet}</p>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {email.labels && email.labels.split(', ')
+                                                            .filter((l: string) => l.startsWith('MailMaster/'))
+                                                            .map((l: string) => (
+                                                                <span key={l} className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${getCategoryColor(l.split('/')[1])}`}>
+                                                                    {l.split('/')[1]}
+                                                                </span>
+                                                            ))}
+                                                    </div>
+                                                </div>
                                             </div>
                                         ))}
                                         {emails && emails.length >= limit && (
@@ -187,27 +354,66 @@ export default function Dashboard() {
                                                         {selectedEmail.from.charAt(0).toUpperCase()}
                                                     </div>
                                                     <div>
-                                                        <span className="font-semibold text-slate-800 block">{selectedEmail.from.split('<')[0]}</span>
-                                                        <span className="text-xs text-slate-500">{selectedEmail.date}</span>
+                                                        <span className="font-semibold text-slate-800 block">
+                                                            {activeTab === 'sent' ? `Sent To: ${selectedEmail.to}` : `From: ${selectedEmail.from}`}
+                                                        </span>
+                                                        <div className="flex items-center gap-2 mt-1">
+                                                            <span className="text-xs text-slate-500">{formatDate(selectedEmail.date)}</span>
+                                                            {activeTab === 'sent' && (
+                                                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${selectedEmail.opened ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-slate-50 text-slate-400 border-slate-200'}`}>
+                                                                    {selectedEmail.opened ? '✓ Read' : '• Pending'}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
                                             <div className="flex gap-3">
-                                                <button onClick={() => handleSummarize(selectedEmail.id)} className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 text-indigo-700 border border-indigo-100 rounded-xl hover:from-blue-100 hover:to-indigo-100 transition-all font-semibold shadow-sm text-sm">
-                                                    <Sparkles size={16} className="text-indigo-500" /> AI Summary
+                                                <button
+                                                    onClick={() => handleSummarize(selectedEmail.id)}
+                                                    disabled={isSummarizing}
+                                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all font-semibold shadow-sm text-sm ${isSummarizing ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-50 to-indigo-50 text-indigo-700 border border-indigo-100 hover:from-blue-100 hover:to-indigo-100 cursor-pointer'}`}
+                                                >
+                                                    {isSummarizing ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} className="text-indigo-500" />}
+                                                    {isSummarizing ? "Working..." : "AI Summary"}
                                                 </button>
-                                                <button onClick={() => handleCategorize(selectedEmail.id)} className="flex items-center gap-2 px-4 py-2 bg-white text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-all font-semibold text-sm shadow-sm">
-                                                    <SettingsIcon size={16} className="text-slate-400" /> Categorize
+                                                <button
+                                                    onClick={() => handleCategorize(selectedEmail.id, selectedEmail)}
+                                                    disabled={isCategorizing}
+                                                    className={`flex items-center gap-2 px-4 py-2 rounded-xl transition-all font-semibold text-sm shadow-sm ${isCategorizing ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50 cursor-pointer'}`}
+                                                >
+                                                    {isCategorizing ? <Loader2 size={16} className="animate-spin" /> : <Tag size={16} className="text-slate-400" />}
+                                                    {isCategorizing ? "Thinking..." : "Categorize"}
                                                 </button>
                                             </div>
                                         </div>
 
-                                        {selectedEmail.category && (
-                                            <div className="mb-6 inline-flex items-center gap-2 px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-full text-xs font-bold uppercase tracking-wider border border-indigo-100">
-                                                <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
-                                                {selectedEmail.category}
-                                            </div>
-                                        )}
+                                        <div className="flex flex-wrap gap-2 mb-6">
+                                            {selectedEmail.labels && selectedEmail.labels.split(', ')
+                                                .filter((l: string) => !['INBOX', 'UNREAD', 'IMPORTANT', 'CATEGORY_PROMOTIONS', 'CATEGORY_UPDATES', 'CATEGORY_SOCIAL', 'CATEGORY_FORUMS', 'CHAT'].includes(l))
+                                                .map((label: string) => (
+                                                    <div
+                                                        key={label}
+                                                        className={`inline-flex items-center gap-2 pl-3 pr-1.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border shadow-sm group ${getCategoryColor(label.includes('/') ? label.split('/')[1] : label)}`}
+                                                    >
+                                                        <span className={`w-2 h-2 rounded-full ${label.includes('Priority') ? 'bg-blue-500' : 'bg-slate-400'}`}></span>
+                                                        {label.startsWith('MailMaster/') ? label.replace('MailMaster/', '') : label}
+                                                        <button
+                                                            onClick={() => handleRemoveLabel(selectedEmail.id, label)}
+                                                            className="p-0.5 hover:bg-black/5 rounded-full transition-colors ml-1"
+                                                            title="Remove label and return to inbox"
+                                                        >
+                                                            <X size={14} />
+                                                        </button>
+                                                    </div>
+                                                ))}
+
+                                            {selectedEmail.category && !selectedEmail.labels?.includes(`MailMaster/${selectedEmail.category}`) && (
+                                                <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase border animate-in fade-in zoom-in duration-300 ${getCategoryColor(selectedEmail.category)}`}>
+                                                    <Check size={14} /> {selectedEmail.category} (Ready)
+                                                </div>
+                                            )}
+                                        </div>
 
                                         {selectedEmail.summary && (
                                             <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-8 relative overflow-hidden">
@@ -215,14 +421,72 @@ export default function Dashboard() {
                                                 <h5 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
                                                     <Sparkles size={16} className="text-blue-500" /> Executive Summary
                                                 </h5>
-                                                <p className="text-slate-700 leading-relaxed font-medium">"{selectedEmail.summary}"</p>
+                                                <p className="text-slate-700 leading-relaxed font-medium mb-4">"{selectedEmail.summary}"</p>
+
+                                                {selectedEmail.reasoning && (
+                                                    <div className="flex items-start gap-2 text-xs text-slate-400 bg-white/50 p-2 rounded-lg border border-slate-100">
+                                                        <Info size={14} className="shrink-0 mt-0.5" />
+                                                        <span className="italic">{selectedEmail.reasoning.split('Reasoning: ')[1] || selectedEmail.reasoning}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
 
-                                        <div className="text-slate-800 leading-relaxed whitespace-pre-wrap text-[15px]">
-                                            {selectedEmail.snippet}
-                                            <br /><br />
-                                            <span className="text-slate-400 italic text-sm">(Preview shown. HTML rendering to be implemented.)</span>
+                                        {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                                            <div className="mb-8 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                                                <h5 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+                                                    <Paperclip size={16} className="text-slate-400" /> Attachments ({selectedEmail.attachments.length})
+                                                </h5>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {selectedEmail.attachments.map((att: any) => (
+                                                        <a
+                                                            key={att.id}
+                                                            href={`${API_BASE}/emails/${selectedEmail.id}/attachments/${att.id}?filename=${encodeURIComponent(att.filename)}`}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:border-blue-200 hover:text-blue-700 transition-all"
+                                                        >
+                                                            <Download size={14} className="opacity-60" />
+                                                            {att.filename}
+                                                            <span className="text-[10px] text-slate-400">({(att.size / 1024).toFixed(1)} KB)</span>
+                                                        </a>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h5 className="text-sm font-bold text-slate-400 uppercase tracking-widest">Email Content</h5>
+                                            <button
+                                                onClick={() => setExpandedEmails(prev => ({ ...prev, [selectedEmail.id]: !prev[selectedEmail.id] }))}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-all"
+                                            >
+                                                {expandedEmails[selectedEmail.id] ? (
+                                                    <>Less <ChevronUp size={14} /></>
+                                                ) : (
+                                                    <>More <ChevronDown size={14} /></>
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        <div className={`text-slate-800 leading-relaxed overflow-x-auto ${expandedEmails[selectedEmail.id] ? '' : 'max-h-[300px] relative'}`}>
+                                            {/* We use sanitized div for HTML content */}
+                                            {selectedEmail.body && selectedEmail.body.includes('<') ? (
+                                                <div className="email-body-container">
+                                                    <div
+                                                        className="prose prose-slate max-w-none"
+                                                        dangerouslySetInnerHTML={{ __html: selectedEmail.body }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="whitespace-pre-wrap font-sans text-[15px]">
+                                                    {selectedEmail.body || selectedEmail.snippet}
+                                                </div>
+                                            )}
+
+                                            {!expandedEmails[selectedEmail.id] && (
+                                                <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+                                            )}
                                         </div>
                                     </div>
                                 ) : (
@@ -260,7 +524,7 @@ export default function Dashboard() {
                                                     </div>
                                                     <div>
                                                         <h4 className="font-bold text-slate-900 text-lg mb-1">{email.subject}</h4>
-                                                        <p className="text-sm text-slate-500 font-medium">From {email.sender.split('<')[0]} <span className="mx-2 text-slate-300">•</span> {email.date}</p>
+                                                        <p className="text-sm text-slate-500 font-medium">From {email.sender.split('<')[0]} <span className="mx-2 text-slate-300">•</span> {formatDate(email.date)}</p>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-6">

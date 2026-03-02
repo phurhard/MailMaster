@@ -1,26 +1,30 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import {
     Mail, Trash2, Sparkles,
     Search, AlertTriangle, BarChart3, RefreshCw, LogOut, Loader2,
-    Paperclip, Download, ChevronDown, ChevronUp, Check, X, Tag, Info, Send
+    Paperclip, Download, ChevronDown, ChevronUp, Check, X, Tag, Info, Send,
+    Menu, ChevronLeft, ChevronRight
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
 
 export default function Dashboard() {
     const [, setLocation] = useLocation();
-    const [activeTab, setActiveTab] = useState<string>('inbox');
+    const [activeTab, setActiveTab] = useState<'inbox' | 'sent' | 'cleanup' | 'stats' | string>('inbox');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [limit, setLimit] = useState(20);
     const [selectedEmail, setSelectedEmail] = useState<any>(null);
-    const [isSidebarOpen] = useState(true);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const [isListOpen, setIsListOpen] = useState(true);
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [isCategorizing, setIsCategorizing] = useState(false);
     const [isBatchCategorizing, setIsBatchCategorizing] = useState(false);
     const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
+    const [isFetchingMore, setIsFetchingMore] = useState(false);
+    const listRef = useRef<HTMLDivElement>(null);
 
     const token = localStorage.getItem('auth_token');
 
@@ -48,11 +52,19 @@ export default function Dashboard() {
 
     // Fetch emails
     const { data: emails, isLoading, refetch } = useQuery({
-        queryKey: ['emails', searchQuery, limit],
+        queryKey: ['emails', searchQuery, limit, activeTab], // Added activeTab to queryKey for re-fetching on tab change
         queryFn: async () => {
-            const endpoint = searchQuery
-                ? `${API_BASE}/emails/search/${searchQuery}?limit=${limit}`
-                : `${API_BASE}/emails/search/in:inbox?limit=${limit}`;
+            setIsFetchingMore(true); // Indicate that fetching is in progress
+            let endpoint = '';
+            if (searchQuery) {
+                // Scope search based on active tab
+                const scopedQuery = activeTab === 'sent' ? `in:sent ${searchQuery}` : `in:inbox ${searchQuery}`;
+                endpoint = `${API_BASE}/emails/search/${encodeURIComponent(scopedQuery)}?limit=${limit}`;
+            } else if (activeTab === 'sent') {
+                endpoint = `${API_BASE}/emails/sent?limit=${limit}`;
+            } else {
+                endpoint = `${API_BASE}/emails/search/in:inbox?limit=${limit}`;
+            }
             const res = await authorizedFetch(endpoint);
             const data = await res.json();
 
@@ -60,6 +72,7 @@ export default function Dashboard() {
             if (data.length > 0 && !selectedEmail) {
                 setSelectedEmail(data[0]);
             }
+            setIsFetchingMore(false); // Fetching complete
             return data;
         },
         enabled: !!token,
@@ -151,6 +164,26 @@ export default function Dashboard() {
         }
     };
 
+    const handleScroll = useCallback(() => {
+        if (!listRef.current || isLoading || isFetchingMore) return;
+
+        const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+        // If we are within 100px of the bottom
+        if (scrollTop + clientHeight >= scrollHeight - 100) {
+            if (emails && emails.length >= limit) {
+                setLimit(prev => prev + 20);
+            }
+        }
+    }, [isLoading, isFetchingMore, emails, limit]);
+
+    useEffect(() => {
+        const listEl = listRef.current;
+        if (listEl) {
+            listEl.addEventListener('scroll', handleScroll);
+            return () => listEl.removeEventListener('scroll', handleScroll);
+        }
+    }, [handleScroll]);
+
     const getCategoryColor = (cat: string) => {
         const c = cat?.toLowerCase() || '';
         if (c.includes('priority')) return 'bg-blue-100 text-blue-700 border-blue-200';
@@ -184,11 +217,19 @@ export default function Dashboard() {
         <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
             {/* Sidebar */}
             <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-white border-r border-slate-200 transition-all duration-300 flex flex-col`}>
-                <div className="p-6 flex items-center gap-3">
-                    <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white">
-                        <Mail size={20} />
+                <div className="p-6 flex items-center justify-between">
+                    <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white shrink-0">
+                            <Mail size={20} />
+                        </div>
+                        {isSidebarOpen && <span className="font-bold text-xl tracking-tight animate-in fade-in slide-in-from-left-4 duration-300">MailMaster</span>}
                     </div>
-                    {isSidebarOpen && <span className="font-bold text-xl tracking-tight">MailMaster</span>}
+                    <button
+                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                        className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
+                    >
+                        {isSidebarOpen ? <ChevronLeft size={20} /> : <Menu size={20} />}
+                    </button>
                 </div>
 
                 <nav className="flex-1 px-4 space-y-2 mt-4">
@@ -210,16 +251,27 @@ export default function Dashboard() {
             <main className="flex-1 flex flex-col overflow-hidden">
                 {/* Header */}
                 <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shrink-0">
-                    <div className="relative w-96">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                        <input
-                            type="text"
-                            placeholder="Search emails..."
-                            className="w-full pl-10 pr-4 py-2 bg-slate-100 border-transparent rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && refetch()}
-                        />
+                    <div className="flex items-center gap-6">
+                        {!isListOpen && (activeTab === 'inbox' || activeTab === 'sent') && (
+                            <button
+                                onClick={() => setIsListOpen(true)}
+                                className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                                title="Show email list"
+                            >
+                                <ChevronRight size={20} />
+                            </button>
+                        )}
+                        <div className="relative w-96">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                            <input
+                                type="text"
+                                placeholder="Search emails..."
+                                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-transparent rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && refetch()}
+                            />
+                        </div>
                     </div>
 
                     <div className="flex items-center gap-4">
@@ -228,6 +280,19 @@ export default function Dashboard() {
                                 <Loader2 size={12} className="animate-spin" /> Batch Processing...
                             </div>
                         )}
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 rounded-lg border border-slate-200">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Limit</span>
+                            <select
+                                value={limit}
+                                onChange={(e) => setLimit(Number(e.target.value))}
+                                className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer"
+                            >
+                                <option value={20}>20</option>
+                                <option value={50}>50</option>
+                                <option value={100}>100</option>
+                                <option value={200}>200</option>
+                            </select>
+                        </div>
                         <button onClick={() => refetch()} className="p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors relative group">
                             <RefreshCw size={20} className={isLoading ? "animate-spin text-blue-500" : ""} />
                         </button>
@@ -239,10 +304,13 @@ export default function Dashboard() {
 
                 {/* View Content */}
                 <div className="flex-1 flex overflow-hidden">
-                    {activeTab === 'inbox' && (
+                    {(activeTab === 'inbox' || activeTab === 'sent') && (
                         <>
                             {/* Email List */}
-                            <div className="w-1/3 xl:w-1/4 min-w-[320px] border-r border-slate-200 overflow-y-auto bg-white flex flex-col">
+                            <div
+                                ref={listRef}
+                                className={`${isListOpen ? 'w-1/3 xl:w-1/4 opacity-100' : 'w-0 opacity-0 pointer-events-none'} min-w-0 border-r border-slate-200 overflow-y-auto bg-white flex flex-col transition-all duration-300 ease-in-out relative group`}
+                            >
                                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center sticky top-0 z-10 gap-3">
                                     <div className="flex items-center gap-3">
                                         <input
@@ -251,9 +319,20 @@ export default function Dashboard() {
                                             checked={emails?.length > 0 && selectedIds.length === emails?.length}
                                             onChange={toggleSelectAll}
                                         />
-                                        <h3 className="font-semibold text-slate-800">Inbox Results</h3>
+                                        <h3 className="font-semibold text-slate-800 whitespace-nowrap">
+                                            {activeTab === 'sent' ? 'Sent Mail' : 'Inbox Results'}
+                                        </h3>
                                     </div>
-                                    <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2.5 py-1 rounded-full">{emails?.length || 0}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold text-slate-500 bg-slate-200 px-2.5 py-1 rounded-full">{emails?.length || 0}</span>
+                                        <button
+                                            onClick={() => setIsListOpen(false)}
+                                            className="p-1 hover:bg-slate-200 rounded text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            title="Collapse list"
+                                        >
+                                            <ChevronLeft size={14} />
+                                        </button>
+                                    </div>
                                 </div>
 
                                 {selectedIds.length > 0 && (
@@ -276,7 +355,7 @@ export default function Dashboard() {
                                     </div>
                                 )}
 
-                                {isLoading ? (
+                                {isLoading && limit === 20 ? ( // Only show full screen loader for initial load
                                     <div className="flex-1 flex items-center justify-center"><Loader2 className="animate-spin text-blue-500 w-8 h-8" /></div>
                                 ) : emails?.length === 0 ? (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 p-8 text-center">
@@ -303,7 +382,7 @@ export default function Dashboard() {
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex justify-between items-center mb-1.5">
                                                         <span className="font-bold text-slate-900 truncate pr-2">
-                                                            {activeTab === 'sent' ? `To: ${email.to?.split(' <')[0] || 'Recipient'}` : email.from.split(' <')[0]}
+                                                            {activeTab === 'sent' ? (email.to?.split(' <')[0] || 'Recipient') : email.from.split(' <')[0]}
                                                         </span>
                                                         <div className="flex items-center gap-2">
                                                             {activeTab === 'sent' && (
@@ -328,7 +407,13 @@ export default function Dashboard() {
                                                 </div>
                                             </div>
                                         ))}
-                                        {emails && emails.length >= limit && (
+                                        {isLoading && limit > 20 && ( // Show loading more indicator
+                                            <div className="p-8 flex justify-center items-center">
+                                                <Loader2 className="animate-spin text-blue-500" size={24} />
+                                                <span className="ml-3 text-sm font-medium text-slate-500 tracking-wide">Loading more magic...</span>
+                                            </div>
+                                        )}
+                                        {emails && emails.length >= limit && !isLoading && ( // Show load more button only if not loading and more might exist
                                             <div className="p-4 flex justify-center sticky bottom-0 bg-white border-t border-slate-100">
                                                 <button
                                                     onClick={() => setLimit(l => l + 20)}
@@ -350,8 +435,10 @@ export default function Dashboard() {
                                             <div>
                                                 <h2 className="text-3xl font-bold text-slate-900 mb-3 leading-tight">{selectedEmail.subject}</h2>
                                                 <div className="flex items-center gap-3">
-                                                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
-                                                        {selectedEmail.from.charAt(0).toUpperCase()}
+                                                    <div className="flex-shrink-0">
+                                                        <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
+                                                            {(activeTab === 'sent' ? (selectedEmail.to?.[0] || '?') : (selectedEmail.from?.[0] || '?')).toUpperCase()}
+                                                        </div>
                                                     </div>
                                                     <div>
                                                         <span className="font-semibold text-slate-800 block">

@@ -54,7 +54,6 @@ export default function Dashboard() {
     const { data: emails, isLoading, refetch } = useQuery({
         queryKey: ['emails', searchQuery, limit, activeTab], // Added activeTab to queryKey for re-fetching on tab change
         queryFn: async () => {
-            setIsFetchingMore(true); // Indicate that fetching is in progress
             let endpoint = '';
             if (searchQuery) {
                 // Scope search based on active tab
@@ -67,12 +66,6 @@ export default function Dashboard() {
             }
             const res = await authorizedFetch(endpoint);
             const data = await res.json();
-
-            // Auto-select first email if none selected and emails exist
-            if (data.length > 0 && !selectedEmail) {
-                setSelectedEmail(data[0]);
-            }
-            setIsFetchingMore(false); // Fetching complete
             return data;
         },
         enabled: !!token,
@@ -164,6 +157,18 @@ export default function Dashboard() {
         }
     };
 
+    // Auto-select first email when data loads
+    useEffect(() => {
+        if (emails && emails.length > 0 && !selectedEmail) {
+            setSelectedEmail(emails[0]);
+        }
+    }, [emails, selectedEmail]);
+
+    // Handle fetching more state
+    useEffect(() => {
+        setIsFetchingMore(isLoading && limit > 20);
+    }, [isLoading, limit]);
+
     const handleScroll = useCallback(() => {
         if (!listRef.current || isLoading || isFetchingMore) return;
 
@@ -183,6 +188,17 @@ export default function Dashboard() {
             return () => listEl.removeEventListener('scroll', handleScroll);
         }
     }, [handleScroll]);
+
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                setSelectedEmail(null);
+                setSelectedIds([]);
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [setSelectedEmail, setSelectedIds]);
 
     const getCategoryColor = (cat: string) => {
         const c = cat?.toLowerCase() || '';
@@ -428,20 +444,20 @@ export default function Dashboard() {
                             </div>
 
                             {/* Email Reading Detail */}
-                            <div className="flex-1 bg-[#FAFBFF] p-8 overflow-y-auto">
+                            <div className="flex-1 bg-[#FAFBFF] p-8 overflow-y-auto min-w-0">
                                 {selectedEmail ? (
-                                    <div className="max-w-3xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8 min-h-[80vh]">
-                                        <div className="flex justify-between items-start mb-8 pb-6 border-b border-slate-100">
-                                            <div>
-                                                <h2 className="text-3xl font-bold text-slate-900 mb-3 leading-tight">{selectedEmail.subject}</h2>
+                                    <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8 min-h-[80vh] flex flex-col">
+                                        <div className="flex justify-between items-start mb-8 pb-6 border-b border-slate-100 gap-6">
+                                            <div className="min-w-0 flex-1">
+                                                <h2 className="text-3xl font-bold text-slate-900 mb-3 leading-tight break-words">{selectedEmail.subject}</h2>
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-shrink-0">
                                                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
                                                             {(activeTab === 'sent' ? (selectedEmail.to?.[0] || '?') : (selectedEmail.from?.[0] || '?')).toUpperCase()}
                                                         </div>
                                                     </div>
-                                                    <div>
-                                                        <span className="font-semibold text-slate-800 block">
+                                                    <div className="min-w-0 flex-1">
+                                                        <span className="font-semibold text-slate-800 block truncate">
                                                             {activeTab === 'sent' ? `Sent To: ${selectedEmail.to}` : `From: ${selectedEmail.from}`}
                                                         </span>
                                                         <div className="flex items-center gap-2 mt-1">
@@ -497,7 +513,7 @@ export default function Dashboard() {
 
                                             {selectedEmail.category && !selectedEmail.labels?.includes(`MailMaster/${selectedEmail.category}`) && (
                                                 <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold uppercase border animate-in fade-in zoom-in duration-300 ${getCategoryColor(selectedEmail.category)}`}>
-                                                    <Check size={14} /> {selectedEmail.category} (Ready)
+                                                    <Check size={14} /> {selectedEmail.category}
                                                 </div>
                                             )}
                                         </div>

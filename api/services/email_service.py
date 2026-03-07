@@ -2,6 +2,8 @@ from api.services.gmail import search_emails, get_email_message_details, get_bat
 from api.services.ai_service import summarize_email_content, smart_categorize_email
 from typing import List, Dict
 import html
+import uuid
+import os
 
 def search_and_format_emails(service, keyword: str, limit: int = 20) -> List[Dict]:
     email_messages = search_emails(service, query=keyword, max_results=limit)
@@ -121,3 +123,18 @@ def get_formatted_cleanup_suggestions(service, limit: int = 20) -> dict:
         "large_emails": results,
         "suggestion": "Review these large emails to free up space in your account."
     }
+
+def send_composed_email(service, to_email: str, subject: str, body: str):
+    from api.services.gmail import send_email
+    
+    # Generate unique message ID
+    tracking_id = f"{uuid.uuid4().hex}@mailmaster.local"
+    
+    # Base URL from environment or default
+    api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
+    
+    # Inject tracking pixel
+    pixel = f'<img src="{api_base}/emails/track?tid=track&eid={tracking_id}" width="1" height="1" style="display:none;"/>'
+    new_body = f"{body}<br>{pixel}"
+    
+    return send_email(service, to=to_email, subject=subject, body=new_body, body_type="html", message_id=tracking_id)

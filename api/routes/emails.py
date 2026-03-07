@@ -22,6 +22,11 @@ class BatchRequest(BaseModel):
 class LabelRequest(BaseModel):
     label_name: str
 
+class ComposeRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+
 router = APIRouter(prefix="/emails", tags=["Emails"])
 
 def get_user_gmail_service(current_user: dict = Depends(get_current_user)):
@@ -135,6 +140,24 @@ async def download_email_attachment(email_id: str, attachment_id: str, filename:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/send")
+async def send_email_endpoint(request: ComposeRequest, service = Depends(get_user_gmail_service)):
+    try:
+        from api.services.email_service import send_composed_email
+        send_composed_email(service, request.to, request.subject, request.body)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{email_id}/read")
+async def mark_email_as_read(email_id: str, service = Depends(get_user_gmail_service)):
+    try:
+        from api.services.gmail import modify_email_labels
+        modify_email_labels(service, 'me', email_id, remove_labels=['UNREAD'])
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/track")
 async def track_email_open(tid: str, eid: str, service = Depends(get_user_gmail_service)):
     """
@@ -142,11 +165,17 @@ async def track_email_open(tid: str, eid: str, service = Depends(get_user_gmail_
     Applies the 'MailMaster/Opened' label to the email.
     """
     import base64
-    from api.services.gmail import ensure_label_exists, modify_email_labels
+    from api.services.gmail import ensure_label_exists, modify_email_labels, search_emails
     try:
         label_id = ensure_label_exists(service, "MailMaster/Opened")
-        modify_email_labels(service, 'me', eid, add_labels=[label_id])
-    except Exception:
+        try:
+            modify_email_labels(service, 'me', eid, add_labels=[label_id])
+        except Exception:
+            messages = search_emails(service, query=f'rfc822msgid:{eid}')
+            if messages:
+                modify_email_labels(service, 'me', messages[0]['id'], add_labels=[label_id])
+    except Exception as e:
+        print(f"Tracking error: {str(e)}")
         pass
     
     # 1x1 Transparent GIF

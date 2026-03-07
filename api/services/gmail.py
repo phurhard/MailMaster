@@ -257,10 +257,12 @@ def get_batch_email_details(service, msg_ids):
     return processed_emails
 
 
-def send_email(service, to, subject, body, body_type='plain', attachment_paths=None):
+def send_email(service, to, subject, body, body_type='plain', attachment_paths=None, message_id=None):
     message = MIMEMultipart()
     message['to'] = to
     message['subject'] = subject
+    if message_id:
+        message['Message-ID'] = f"<{message_id}>"
 
     if body_type.lower() not in ['plain', 'html']:
         raise ValueError('body_type must be eother "plain" or "html"')

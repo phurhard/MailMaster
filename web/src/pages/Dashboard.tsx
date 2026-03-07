@@ -5,7 +5,7 @@ import {
     Mail, Trash2, Sparkles,
     Search, AlertTriangle, BarChart3, RefreshCw, LogOut, Loader2,
     Paperclip, Download, ChevronDown, ChevronUp, Check, X, Tag, Info, Send,
-    Menu, ChevronLeft, ChevronRight
+    Menu, ChevronLeft, ChevronRight, Edit2
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:8000';
@@ -24,6 +24,9 @@ export default function Dashboard() {
     const [isBatchCategorizing, setIsBatchCategorizing] = useState(false);
     const [expandedEmails, setExpandedEmails] = useState<Record<string, boolean>>({});
     const [isFetchingMore, setIsFetchingMore] = useState(false);
+    const [isComposeOpen, setIsComposeOpen] = useState(false);
+    const [composeForm, setComposeForm] = useState({ to: '', subject: '', body: '' });
+    const [isSending, setIsSending] = useState(false);
     const listRef = useRef<HTMLDivElement>(null);
 
     const token = localStorage.getItem('auth_token');
@@ -138,6 +141,34 @@ export default function Dashboard() {
             }
         } catch (err) {
             console.error("Failed to remove label", err);
+        }
+    };
+
+    const handleSendEmail = async () => {
+        if (!composeForm.to || !composeForm.subject || !composeForm.body) return;
+        setIsSending(true);
+        try {
+            await authorizedFetch(`${API_BASE}/emails/send`, {
+                method: 'POST',
+                body: JSON.stringify(composeForm)
+            });
+            setIsComposeOpen(false);
+            setComposeForm({ to: '', subject: '', body: '' });
+            if (activeTab === 'sent') refetch();
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setIsSending(false);
+        }
+    };
+
+    const handleEmailSelect = async (email: any) => {
+        setSelectedEmail(email);
+        if (email.labels && email.labels.includes('UNREAD')) {
+            try {
+                await authorizedFetch(`${API_BASE}/emails/${email.id}/read`, { method: 'POST' });
+                refetch();
+            } catch (err) { }
         }
     };
 
@@ -383,7 +414,7 @@ export default function Dashboard() {
                                         {emails?.map((email: any) => (
                                             <div
                                                 key={email.id}
-                                                onClick={() => setSelectedEmail(email)}
+                                                onClick={() => handleEmailSelect(email)}
                                                 className={`p-5 cursor-pointer hover:bg-slate-50 transition-all flex gap-4 ${selectedEmail?.id === email.id ? 'bg-blue-50/60 border-l-4 border-l-blue-600' : 'border-l-4 border-l-transparent'}`}
                                             >
                                                 <div className="pt-1">
@@ -396,14 +427,14 @@ export default function Dashboard() {
                                                     />
                                                 </div>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="flex justify-between items-center mb-1.5">
-                                                        <span className="font-bold text-slate-900 truncate pr-2">
+                                                    <div className="flex justify-between items-start mb-1.5 gap-2">
+                                                        <span className="font-bold text-slate-900 truncate min-w-0 flex-1">
                                                             {activeTab === 'sent' ? (email.to?.split(' <')[0] || 'Recipient') : email.from.split(' <')[0]}
                                                         </span>
-                                                        <div className="flex items-center gap-2">
+                                                        <div className="flex items-center gap-2 shrink-0">
                                                             {activeTab === 'sent' && (
-                                                                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded ${email.opened ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
-                                                                    {email.opened ? 'Read' : 'Sent'}
+                                                                <span className={`flex items-center gap-1 text-[10px] font-black uppercase px-2 py-0.5 rounded ${email.opened ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>
+                                                                    {email.opened ? <><Check size={10} strokeWidth={3} /> Read</> : 'Sent'}
                                                                 </span>
                                                             )}
                                                             <span className="text-xs font-medium text-slate-400 whitespace-nowrap">{formatDate(email.date)}</span>
@@ -446,10 +477,10 @@ export default function Dashboard() {
                             {/* Email Reading Detail */}
                             <div className="flex-1 bg-[#FAFBFF] p-8 overflow-y-auto min-w-0">
                                 {selectedEmail ? (
-                                    <div className="max-w-4xl mx-auto bg-white border border-slate-200 rounded-2xl shadow-sm p-8 min-h-[80vh] flex flex-col">
-                                        <div className="flex justify-between items-start mb-8 pb-6 border-b border-slate-100 gap-6">
-                                            <div className="min-w-0 flex-1">
-                                                <h2 className="text-3xl font-bold text-slate-900 mb-3 leading-tight break-words">{selectedEmail.subject}</h2>
+                                    <div className="max-w-4xl mx-auto w-full bg-white border border-slate-200 rounded-2xl shadow-sm p-6 md:p-8 min-h-[80vh] flex flex-col">
+                                        <div className="flex flex-col xl:flex-row justify-between items-start mb-8 pb-6 border-b border-slate-100 gap-6 w-full">
+                                            <div className="min-w-0 flex-1 w-full relative">
+                                                <h2 className="text-2xl md:text-3xl font-bold text-slate-900 mb-3 leading-tight break-words" style={{ wordBreak: 'break-word' }}>{selectedEmail.subject}</h2>
                                                 <div className="flex items-center gap-3">
                                                     <div className="flex-shrink-0">
                                                         <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-bold">
@@ -471,7 +502,7 @@ export default function Dashboard() {
                                                     </div>
                                                 </div>
                                             </div>
-                                            <div className="flex gap-3">
+                                            <div className="flex gap-3 shrink-0 flex-wrap">
                                                 <button
                                                     onClick={() => handleSummarize(selectedEmail.id)}
                                                     disabled={isSummarizing}
@@ -644,6 +675,77 @@ export default function Dashboard() {
                     )}
                 </div>
             </main>
+
+            {/* Compose FAB */}
+            <button
+                onClick={() => setIsComposeOpen(true)}
+                className="fixed bottom-8 right-8 w-14 h-14 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full shadow-xl shadow-blue-500/30 flex items-center justify-center text-white hover:scale-105 active:scale-95 transition-all z-50 group hover:shadow-2xl hover:shadow-blue-500/40 border border-white/10"
+                title="Compose Email"
+            >
+                <Edit2 size={24} className="group-hover:rotate-12 transition-transform duration-300" />
+            </button>
+
+            {/* Compose Modal */}
+            {isComposeOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 pb-20">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => !isSending && setIsComposeOpen(false)}></div>
+                    <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-8 duration-300">
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Edit2 size={18} className="text-blue-600" /> New Message
+                            </h3>
+                            <button onClick={() => !isSending && setIsComposeOpen(false)} className="p-1 hover:bg-slate-200 rounded text-slate-500 transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 flex-1">
+                            <div>
+                                <input
+                                    type="email"
+                                    placeholder="To"
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-medium"
+                                    value={composeForm.to}
+                                    onChange={(e) => setComposeForm(prev => ({ ...prev, to: e.target.value }))}
+                                />
+                            </div>
+                            <div>
+                                <input
+                                    type="text"
+                                    placeholder="Subject"
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none font-bold text-slate-800"
+                                    value={composeForm.subject}
+                                    onChange={(e) => setComposeForm(prev => ({ ...prev, subject: e.target.value }))}
+                                />
+                            </div>
+                            <div className="h-64">
+                                <textarea
+                                    placeholder="Write your email here..."
+                                    className="w-full h-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none resize-none prose prose-slate"
+                                    value={composeForm.body}
+                                    onChange={(e) => setComposeForm(prev => ({ ...prev, body: e.target.value }))}
+                                ></textarea>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                            <button
+                                onClick={() => setIsComposeOpen(false)}
+                                disabled={isSending}
+                                className="px-5 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-200 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSendEmail}
+                                disabled={isSending || !composeForm.to || !composeForm.subject}
+                                className="flex items-center gap-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-bold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isSending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                                {isSending ? 'Sending...' : 'Send'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

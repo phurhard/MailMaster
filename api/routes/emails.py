@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from api.utils.google_apis import create_service
 from api.security import get_current_user
-from api.services.gmail import get_attachment_data
+from api.services.gmail import (
+    get_attachment_data,
+    ensure_label_exists, modify_email_labels, search_emails, list_labels
+)
 from api.services.email_service import (
     search_and_format_emails,
     process_email_summary,
@@ -10,11 +13,13 @@ from api.services.email_service import (
     get_formatted_cleanup_suggestions,
     batch_categorize_emails,
     apply_category_to_email,
-    fetch_sent_emails
+    fetch_sent_emails,
+    send_composed_email
 )
 from pydantic import BaseModel
 from typing import List, Dict
 from api.utils.idempotency import idempotency_manager
+import base64
 
 class BatchRequest(BaseModel):
     email_ids: List[str]
@@ -102,7 +107,6 @@ async def batch_categorize(request: BatchRequest, service = Depends(get_user_gma
 async def add_label(email_id: str, request: LabelRequest, service = Depends(get_user_gmail_service)):
     """Manually apply a label to an email."""
     try:
-        from api.services.gmail import ensure_label_exists, modify_email_labels
         label_id = ensure_label_exists(service, request.label_name)
         modify_email_labels(service, 'me', email_id, add_labels=[label_id])
         return {"status": "success"}
@@ -113,7 +117,6 @@ async def add_label(email_id: str, request: LabelRequest, service = Depends(get_
 async def remove_label(email_id: str, label_name: str, service = Depends(get_user_gmail_service)):
     """Remove a label and return to inbox if it was a MailMaster label."""
     try:
-        from api.services.gmail import modify_email_labels, list_labels
         labels = list_labels(service)
         label_id = next((l['id'] for l in labels if l['name'] == label_name), None)
         if not label_id:
@@ -143,7 +146,6 @@ async def download_email_attachment(email_id: str, attachment_id: str, filename:
 @router.post("/send")
 async def send_email_endpoint(request: ComposeRequest, service = Depends(get_user_gmail_service)):
     try:
-        from api.services.email_service import send_composed_email
         send_composed_email(service, request.to, request.subject, request.body)
         return {"status": "success"}
     except Exception as e:
@@ -152,7 +154,6 @@ async def send_email_endpoint(request: ComposeRequest, service = Depends(get_use
 @router.post("/{email_id}/read")
 async def mark_email_as_read(email_id: str, service = Depends(get_user_gmail_service)):
     try:
-        from api.services.gmail import modify_email_labels
         modify_email_labels(service, 'me', email_id, remove_labels=['UNREAD'])
         return {"status": "success"}
     except Exception as e:
@@ -164,8 +165,6 @@ async def track_email_open(tid: str, eid: str, service = Depends(get_user_gmail_
     Tracking pixel endpoint. Returns a 1x1 transparent GIF.
     Applies the 'MailMaster/Opened' label to the email.
     """
-    import base64
-    from api.services.gmail import ensure_label_exists, modify_email_labels, search_emails
     try:
         label_id = ensure_label_exists(service, "MailMaster/Opened")
         try:
